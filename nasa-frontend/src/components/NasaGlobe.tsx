@@ -14,10 +14,9 @@ const ASTEROIDS: Asteroid[] = [
   { id: "didymos", name: "Didymos", diameter_km: 0.78, velocity_kms: 23 },
 ];
 
-// regra simples de escala de impacto (exemplo)
 function impactRadiusMeters(a: Asteroid) {
-  const r = a.diameter_km * 80_000; // 80 km de raio por km de diâmetro
-  return Math.min(r, 1_000_000); // limite máximo 1.000 km
+  const r = a.diameter_km * 80_000;
+  return Math.min(r, 1_000_000);
 }
 
 export default function NasaGlobe() {
@@ -36,13 +35,17 @@ export default function NasaGlobe() {
 
       const wwd = new WorldWind.WorldWindow("canvasOne");
       wwdRef.current = wwd;
+      
+      // === Camadas base ===
+      // Adicionamos apenas a camada base uniforme para evitar artefatos quadriculados do Landsat
+      const baseLayer = new WorldWind.BMNGLayer();
+      wwd.addLayer(baseLayer);
 
-      // camadas básicas
-      wwd.addLayer(new WorldWind.BMNGLayer());
+      // Ferramentas padrão
       wwd.addLayer(new WorldWind.CoordinatesDisplayLayer(wwd));
       wwd.addLayer(new WorldWind.ViewControlsLayer(wwd));
 
-      // posição inicial (centralizada)
+      // Posição inicial
       wwd.navigator.lookAtLocation.latitude = 0;
       wwd.navigator.lookAtLocation.longitude = 0;
       wwd.navigator.range = 2.1e7;
@@ -50,12 +53,59 @@ export default function NasaGlobe() {
       wwd.navigator.heading = 0;
       wwd.redraw();
 
-      // camada de impactos
+      // === Camada de impactos ===
       const impactLayer = new WorldWind.RenderableLayer("Meteor Impacts");
       impactLayerRef.current = impactLayer;
       wwd.addLayer(impactLayer);
 
-      // ===== clique inteligente =====
+      // === Camada de nomes de países ===
+      const countryLayer = new WorldWind.RenderableLayer("Country Labels");
+
+      const placemarkAttrs = new WorldWind.PlacemarkAttributes(null);
+      placemarkAttrs.imageScale = 0;
+      placemarkAttrs.labelAttributes = new WorldWind.TextAttributes(null);
+      placemarkAttrs.labelAttributes.color = WorldWind.Color.WHITE;
+
+      // CORREÇÃO: Usar CENTER para X e Y para garantir que o texto apareça centralizado
+      placemarkAttrs.labelAttributes.offset = new WorldWind.Offset(
+        WorldWind.Offset.CENTER,
+        WorldWind.Offset.CENTER
+      );
+
+      const countries = [
+        { name: "Brasil", lat: -10, lon: -55 },
+        { name: "Argentina", lat: -35, lon: -65 },
+        { name: "Chile", lat: -30, lon: -71 },
+        { name: "Peru", lat: -10, lon: -75 },
+        { name: "Colômbia", lat: 4, lon: -74 },
+        { name: "Venezuela", lat: 7, lon: -66 },
+        { name: "Paraguai", lat: -23, lon: -58 },
+        { name: "Uruguai", lat: -33, lon: -56 },
+        { name: "Bolívia", lat: -17, lon: -65 },
+        { name: "Equador", lat: -1, lon: -78 },
+      ];
+
+      countries.forEach((c) => {
+        const placemark = new WorldWind.Placemark(
+          new WorldWind.Position(c.lat, c.lon, 0),
+          false,
+          placemarkAttrs
+        );
+        placemark.label = c.name;
+        countryLayer.addRenderable(placemark);
+      });
+
+      wwd.addLayer(countryLayer);
+      
+      // CORREÇÃO: Adicionar a camada de atmosfera por último para renderizar o glow corretamente
+      const atmosphereLayer = new WorldWind.AtmosphereLayer();
+      atmosphereLayer.opacity = 0.55; // Opacidade ligeiramente ajustada para melhor efeito
+      wwd.addLayer(atmosphereLayer);
+      // === Luz solar dinâmica ===
+      wwd.sunShading = true; // ativa sombreamento baseado na posição do sol
+      wwd.redraw();
+
+      // === Eventos de clique ===
       let isDragging = false;
       let dragStart = { x: 0, y: 0 };
 
@@ -85,7 +135,6 @@ export default function NasaGlobe() {
             : null;
         if (!hit) return;
 
-        // usa o asteroide selecionado atual
         const asteroid = ASTEROIDS.find(
           (a) =>
             a.id ===
@@ -102,7 +151,7 @@ export default function NasaGlobe() {
         wwd.redraw();
       });
 
-      // ===== resize seguro (sem recriar buffer) =====
+      // Resize handler
       const handleResize = () => {
         if (!wwd) return;
         wwd.redraw();
@@ -113,9 +162,8 @@ export default function NasaGlobe() {
         window.removeEventListener("resize", handleResize);
       };
     });
-  }, []); // inicializa só uma vez (sem refazer o globo)
+  }, []);
 
-  // limpar impactos
   const clearImpacts = () => {
     if (impactLayerRef.current && wwdRef.current) {
       impactLayerRef.current.removeAllRenderables();
@@ -129,7 +177,7 @@ export default function NasaGlobe() {
       style={{
         width: "100vw",
         height: "100vh",
-        backgroundColor: "black",
+        background: "radial-gradient(circle at center, #02030a 0%, #000000 70%)",
         overflow: "hidden",
         position: "relative",
         cursor: "grab",
@@ -137,7 +185,7 @@ export default function NasaGlobe() {
     >
       <canvas id="canvasOne" style={{ width: "100%", height: "100%", display: "block" }} />
 
-      {/* painel lateral */}
+      {/* Painel lateral */}
       <div
         style={{
           position: "absolute",
