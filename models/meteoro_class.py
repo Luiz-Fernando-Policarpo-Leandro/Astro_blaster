@@ -3,8 +3,6 @@ class Meteoro:
     def __init__(self,args):
         for chave, valor in args.items():
             setattr(self,chave, valor)
-        
-
 
 if __name__ == "__main__":
 

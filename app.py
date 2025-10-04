@@ -11,6 +11,7 @@ def home():
 def simulacao_get():
     if request.method == "GET":
         return render_template("simulacao.html")
+    
 
 @app.get("/sobre")
 def sobre():
