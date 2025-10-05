@@ -6,7 +6,6 @@ class Meteoros:
     def all(limit=5, req_loc=True):
         params = f"limit={limit}&req-loc={str(req_loc).lower()}"
         data = response_fireball(params)
-        print(data)
 
         if not data or "data" not in data:
             return []
@@ -23,8 +22,7 @@ class Meteoros:
         pass
 
 
-
 if __name__ == "__main__":
-    x = Meteoros.all(limit=5)
+    x = Meteoros.all()
     for m in x: 
         print(m)

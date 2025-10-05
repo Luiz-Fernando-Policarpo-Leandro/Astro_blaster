@@ -16,9 +16,8 @@ def sobre():
 @app.routes("/meteoro/")
 @app.routes("/meteoro/<id_meteoro>")
 def meteoro(id_meteoro = None):
-    obj_meteoro = 0
     if id_meteoro:
-         meteoros.all
+         obj_meteoro = meteoros.find_by(id_meteoro)
     else:
         pass
     
