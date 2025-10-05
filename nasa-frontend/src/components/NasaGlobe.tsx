@@ -34,10 +34,11 @@ export default function NasaGlobe() {
   const [realisticMode, setRealisticMode] = useState(false);
 
   // Corrige pixelado (HiDPI)
-  function applyHiDPICanvas(canvas: HTMLCanvasElement, wwd: any) {
+  function applyHiDPICanvas(canvas: HTMLCanvasElement, wwd: { redraw: () => void }) {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.floor(canvas.clientWidth * dpr);
     const height = Math.floor(canvas.clientHeight * dpr);
+
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
