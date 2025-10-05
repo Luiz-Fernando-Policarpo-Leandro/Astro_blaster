@@ -21,155 +21,163 @@ function impactRadiusMeters(a: Asteroid) {
 
 export default function NasaGlobe() {
   const globeRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const wwdRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const impactLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const baseLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realisticLayerRef = useRef<any>(null);
+
   const [selectedAsteroidId, setSelectedAsteroidId] = useState<string | null>(null);
+  const [realisticMode, setRealisticMode] = useState(false);
+
+  // Corrige pixelado (HiDPI)
+  function applyHiDPICanvas(canvas: HTMLCanvasElement, wwd: any) {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const width = Math.floor(canvas.clientWidth * dpr);
+    const height = Math.floor(canvas.clientHeight * dpr);
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+      wwd.redraw();
+    }
+  }
 
   useEffect(() => {
     if (typeof window === "undefined" || !globeRef.current) return;
-    const canvasElement = document.getElementById("canvasOne") as HTMLCanvasElement | null;
-    if (!canvasElement) return;
+    const canvas = document.getElementById("canvasOne") as HTMLCanvasElement | null;
+    if (!canvas) return;
 
     import("worldwindjs").then((WorldWind) => {
-      WorldWind.configuration.baseUrl = "https://worldwindjs.org/worldwindjs";
+      const WW = WorldWind;
+      WW.configuration.baseUrl = "https://worldwindjs.org/worldwindjs";
 
-      const wwd = new WorldWind.WorldWindow("canvasOne");
+      const wwd = new WW.WorldWindow("canvasOne");
       wwdRef.current = wwd;
-      
-      // === Camadas base ===
-      // Adicionamos apenas a camada base uniforme para evitar artefatos quadriculados do Landsat
-      const baseLayer = new WorldWind.BMNGLayer();
-      wwd.addLayer(baseLayer);
 
-      // Ferramentas padrão
-      wwd.addLayer(new WorldWind.CoordinatesDisplayLayer(wwd));
-      wwd.addLayer(new WorldWind.ViewControlsLayer(wwd));
+      // Camada base leve (Blue Marble)
+      const base = new WW.BMNGLayer();
+      base.displayName = "Blue Marble";
+      baseLayerRef.current = base;
+      wwd.addLayer(base);
 
-      // Posição inicial
+      // Camada realista (Landsat)
+      const landsat = new WW.BMNGLandsatLayer();
+      landsat.displayName = "Landsat Realistic";
+      landsat.enabled = false;
+      realisticLayerRef.current = landsat;
+      wwd.addLayer(landsat);
+
+      // Atmosfera e luz solar
+      const atmosphere = new WW.AtmosphereLayer();
+      atmosphere.opacity = 0.55;
+      wwd.addLayer(atmosphere);
+      wwd.sunShading = true;
+
+      // HUD
+      wwd.addLayer(new WW.CoordinatesDisplayLayer(wwd));
+      wwd.addLayer(new WW.ViewControlsLayer(wwd));
+
+      // Impactos
+      const impacts = new WW.RenderableLayer("Meteor Impacts");
+      impactLayerRef.current = impacts;
+      wwd.addLayer(impacts);
+
+      // Config inicial
       wwd.navigator.lookAtLocation.latitude = 0;
       wwd.navigator.lookAtLocation.longitude = 0;
       wwd.navigator.range = 2.1e7;
-      wwd.navigator.tilt = 0;
-      wwd.navigator.heading = 0;
+      applyHiDPICanvas(canvas, wwd);
       wwd.redraw();
 
-      // === Camada de impactos ===
-      const impactLayer = new WorldWind.RenderableLayer("Meteor Impacts");
-      impactLayerRef.current = impactLayer;
-      wwd.addLayer(impactLayer);
-
-      // === Camada de nomes de países ===
-      const countryLayer = new WorldWind.RenderableLayer("Country Labels");
-
-      const placemarkAttrs = new WorldWind.PlacemarkAttributes(null);
-      placemarkAttrs.imageScale = 0;
-      placemarkAttrs.labelAttributes = new WorldWind.TextAttributes(null);
-      placemarkAttrs.labelAttributes.color = WorldWind.Color.WHITE;
-
-      // CORREÇÃO: Usar CENTER para X e Y para garantir que o texto apareça centralizado
-      placemarkAttrs.labelAttributes.offset = new WorldWind.Offset(
-        WorldWind.Offset.CENTER,
-        WorldWind.Offset.CENTER
-      );
-
-      const countries = [
-        { name: "Brasil", lat: -10, lon: -55 },
-        { name: "Argentina", lat: -35, lon: -65 },
-        { name: "Chile", lat: -30, lon: -71 },
-        { name: "Peru", lat: -10, lon: -75 },
-        { name: "Colômbia", lat: 4, lon: -74 },
-        { name: "Venezuela", lat: 7, lon: -66 },
-        { name: "Paraguai", lat: -23, lon: -58 },
-        { name: "Uruguai", lat: -33, lon: -56 },
-        { name: "Bolívia", lat: -17, lon: -65 },
-        { name: "Equador", lat: -1, lon: -78 },
-      ];
-
-      countries.forEach((c) => {
-        const placemark = new WorldWind.Placemark(
-          new WorldWind.Position(c.lat, c.lon, 0),
-          false,
-          placemarkAttrs
-        );
-        placemark.label = c.name;
-        countryLayer.addRenderable(placemark);
-      });
-
-      wwd.addLayer(countryLayer);
-      
-      // CORREÇÃO: Adicionar a camada de atmosfera por último para renderizar o glow corretamente
-      const atmosphereLayer = new WorldWind.AtmosphereLayer();
-      atmosphereLayer.opacity = 0.55; // Opacidade ligeiramente ajustada para melhor efeito
-      wwd.addLayer(atmosphereLayer);
-      // === Luz solar dinâmica ===
-      wwd.sunShading = true; // ativa sombreamento baseado na posição do sol
-      wwd.redraw();
-
-      // === Eventos de clique ===
+      // Interação (clique no globo)
       let isDragging = false;
       let dragStart = { x: 0, y: 0 };
 
-      canvasElement.addEventListener("mousedown", (e) => {
+      canvas.addEventListener("mousedown", (e) => {
         isDragging = false;
         dragStart = { x: e.clientX, y: e.clientY };
       });
 
-      canvasElement.addEventListener("mousemove", (e) => {
+      canvas.addEventListener("mousemove", (e) => {
         const dx = Math.abs(e.clientX - dragStart.x);
         const dy = Math.abs(e.clientY - dragStart.y);
         if (dx > 5 || dy > 5) isDragging = true;
       });
 
-      canvasElement.addEventListener("mouseup", (event) => {
+      canvas.addEventListener("mouseup", (event) => {
         if (isDragging) return;
-        if (!WorldWind.ShapeAttributes || !WorldWind.Color) return;
-
-        const rect = canvasElement.getBoundingClientRect();
+        const rect = canvas.getBoundingClientRect();
         const x = event.clientX - rect.left;
         const y = event.clientY - rect.top;
-
-        const terrain = wwd.pickTerrain(wwd.canvasCoordinates(x, y));
+        const pick = wwd.pickTerrain(wwd.canvasCoordinates(x, y));
         const hit =
-          terrain?.objects?.length && terrain.objects[0].position
-            ? terrain.objects[0].position
-            : null;
+          pick?.objects?.length && pick.objects[0].position ? pick.objects[0].position : null;
         if (!hit) return;
 
-        const asteroid = ASTEROIDS.find(
-          (a) =>
-            a.id ===
-            (document.querySelector('input[name="asteroid"]:checked') as HTMLInputElement)?.value
-        );
+        const selected = (
+          document.querySelector('input[name="asteroid"]:checked') as HTMLInputElement
+        )?.value;
+        const asteroid = ASTEROIDS.find((a) => a.id === selected);
         if (!asteroid) return;
 
-        const radiusM = impactRadiusMeters(asteroid);
-        const attrs = new WorldWind.ShapeAttributes(null);
-        attrs.interiorColor = new WorldWind.Color(1, 0, 0, 0.25);
-        attrs.outlineColor = new WorldWind.Color(1, 0, 0, 1);
-        const impact = new WorldWind.SurfaceCircle(hit, radiusM, attrs);
-        impactLayer.addRenderable(impact);
+        const radius = impactRadiusMeters(asteroid);
+        const attrs = new WW.ShapeAttributes(null);
+        attrs.drawInterior = true;
+        attrs.drawOutline = true;
+        attrs.interiorColor = new WW.Color(1, 0, 0, 0.25);
+        attrs.outlineColor = new WW.Color(1, 0, 0, 0.9);
+        attrs.outlineWidth = 2;
+
+        const impact = new WW.SurfaceCircle(hit, radius, attrs);
+        impacts.addRenderable(impact);
         wwd.redraw();
       });
 
-      // Resize handler
-      const handleResize = () => {
-        if (!wwd) return;
-        wwd.redraw();
-      };
-      window.addEventListener("resize", handleResize);
-
-      return () => {
-        window.removeEventListener("resize", handleResize);
-      };
+      window.addEventListener("resize", () => applyHiDPICanvas(canvas, wwd));
     });
   }, []);
 
+  // Alterna modo realista (sem crash)
+  const toggleRealisticMode = () => {
+    const wwd = wwdRef.current;
+    if (!wwd) return;
+
+    const newMode = !realisticMode;
+    setRealisticMode(newMode);
+
+    if (newMode) {
+      if (baseLayerRef.current) baseLayerRef.current.enabled = false;
+      if (realisticLayerRef.current) realisticLayerRef.current.enabled = true;
+    } else {
+      if (baseLayerRef.current) baseLayerRef.current.enabled = true;
+      if (realisticLayerRef.current) realisticLayerRef.current.enabled = false;
+    }
+    wwd.redraw();
+  };
+
+  // Limpa impactos
   const clearImpacts = () => {
     if (impactLayerRef.current && wwdRef.current) {
       impactLayerRef.current.removeAllRenderables();
       wwdRef.current.redraw();
     }
   };
+
+  const handleAlert = (asteroidName: string, asteroidId: string) => {
+    setSelectedAsteroidId(asteroidId);
+    alert(`🔔 Alerta ativado para ${asteroidName}!`);
+  };
+
+  // Helpers da tabela
+  const formatRisk = (dKm: number) => (dKm < 0.4 ? "Baixo" : dKm < 0.7 ? "Médio" : "Alto");
+  const riskColor = (risk: string) =>
+    risk === "Baixo" ? "#4caf50" : risk === "Médio" ? "#fbc02d" : "#d32f2f";
+  const asteroidDate = (id: string) =>
+    id === "apophis" ? "2029-04-13" : id === "bennu" ? "2135-09-17" : "2025-10-07";
+  const fakeDistance = (dKm: number) => `${(dKm * 1.2).toFixed(2)} mi km`;
 
   return (
     <div
@@ -191,42 +199,53 @@ export default function NasaGlobe() {
           position: "absolute",
           top: 20,
           right: 20,
-          width: 320,
-          maxHeight: "80vh",
-          padding: 12,
+          width: 360,
+          background: "rgba(20,20,20,0.78)",
           borderRadius: 12,
-          background: "rgba(20,20,20,0.75)",
-          backdropFilter: "blur(4px)",
-          boxShadow: "0 4px 18px rgba(0,0,0,0.5)",
+          padding: 12,
           color: "#fff",
-          overflow: "hidden",
+          boxShadow: "0 4px 18px rgba(0,0,0,0.5)",
           display: "flex",
           flexDirection: "column",
           gap: 12,
-          zIndex: 10,
+          backdropFilter: "blur(4px)",
         }}
       >
         <button
           onClick={clearImpacts}
           style={{
             padding: "10px 14px",
-            backgroundColor: "#d32f2f",
+            background: "#d32f2f",
             color: "#fff",
             border: "none",
             borderRadius: 8,
-            fontSize: 14,
             fontWeight: 700,
             cursor: "pointer",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
           }}
         >
           Limpar Impactos
         </button>
 
-        <div style={{ fontSize: 14, opacity: 0.9 }}>
+        <button
+          onClick={toggleRealisticMode}
+          style={{
+            padding: "10px 14px",
+            background: realisticMode ? "#2e7d32" : "#1565c0",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          🌍 Modo Realista: {realisticMode ? "ON" : "OFF"}
+        </button>
+
+        <div style={{ fontSize: 14 }}>
           Selecione um asteroide e clique no globo para marcar o impacto.
         </div>
 
+        {/* ===== Tabela ===== */}
         <div
           style={{
             border: "1px solid rgba(255,255,255,0.15)",
@@ -237,7 +256,7 @@ export default function NasaGlobe() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 80px 80px 32px",
+              gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.7fr 0.9fr 1fr",
               gap: 8,
               padding: "8px 10px",
               background: "rgba(255,255,255,0.07)",
@@ -245,71 +264,77 @@ export default function NasaGlobe() {
               fontSize: 12,
             }}
           >
-            <div>Asteroide</div>
-            <div>Diâm. (km)</div>
-            <div>Vel. (km/s)</div>
-            <div />
+            <div>Nome</div>
+            <div>Tam. (km)</div>
+            <div>Data</div>
+            <div>Risco</div>
+            <div>Distância</div>
+            <div>Alerta</div>
           </div>
 
-          <div
-            style={{
-              maxHeight: "42vh",
-              overflowY: "auto",
-              scrollbarWidth: "thin",
-            }}
-          >
-            {ASTEROIDS.map((a) => (
-              <div
-                key={a.id}
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 80px 80px 32px",
-                  gap: 8,
-                  alignItems: "center",
-                  padding: "8px 10px",
-                  borderTop: "1px solid rgba(255,255,255,0.08)",
-                  fontSize: 13,
-                }}
-              >
-                <div>{a.name}</div>
-                <div>{a.diameter_km}</div>
-                <div>{a.velocity_kms}</div>
-                <div style={{ textAlign: "center" }}>
-                  <input
-                    type="radio"
-                    name="asteroid"
-                    value={a.id}
-                    checked={selectedAsteroidId === a.id}
-                    onChange={() => setSelectedAsteroidId(a.id)}
-                    style={{ cursor: "pointer" }}
-                    title="Selecionar"
-                  />
+          <div style={{ maxHeight: "42vh", overflowY: "auto" }}>
+            {ASTEROIDS.map((a) => {
+              const risk = formatRisk(a.diameter_km);
+              return (
+                <div
+                  key={a.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.7fr 0.9fr 1fr",
+                    alignItems: "center",
+                    padding: "8px 10px",
+                    borderTop: "1px solid rgba(255,255,255,0.08)",
+                    fontSize: 13,
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <input
+                      type="radio"
+                      name="asteroid"
+                      value={a.id}
+                      checked={selectedAsteroidId === a.id}
+                      onChange={() => setSelectedAsteroidId(a.id)}
+                      style={{ cursor: "pointer", accentColor: "#2196f3" }}
+                    />
+                    {a.name}
+                  </div>
+                  <div>{a.diameter_km}</div>
+                  <div>{asteroidDate(a.id)}</div>
+                  <div>
+                    <span
+                      style={{
+                        background: `${riskColor(risk)}22`,
+                        color: riskColor(risk),
+                        fontWeight: 700,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        fontSize: 12,
+                      }}
+                    >
+                      {risk}
+                    </span>
+                  </div>
+                  <div>{fakeDistance(a.diameter_km)}</div>
+                  <div>
+                    <button
+                      onClick={() => handleAlert(a.name, a.id)}
+                      style={{
+                        background: "#1976d2",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 6,
+                        padding: "4px 8px",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Receber alerta
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-        </div>
-
-        <div
-          style={{
-            fontSize: 12,
-            opacity: 0.85,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              width: 8,
-              height: 8,
-              background: selectedAsteroidId ? "#4caf50" : "#fbc02d",
-              borderRadius: 999,
-            }}
-          />
-          {selectedAsteroidId
-            ? "Modo: lançamento ativo (clique no globo)"
-            : "Selecione um asteroide para lançar"}
         </div>
       </div>
     </div>
